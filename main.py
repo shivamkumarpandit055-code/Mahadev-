@@ -562,7 +562,7 @@ async def txt_handler(bot: Client, m: Message):
     # Define watermark variable based on input
     global watermark
     if raw_textx == '/d':
-        watermark = "UG"
+        watermark = "Mr..."
     else:
         watermark = raw_textx
     
