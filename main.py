@@ -1,29 +1,19 @@
-# main.py
-
 import os
-import sys
-import time
 import asyncio
+import time
 from datetime import datetime
 from pyrogram import Client, filters
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
-from pyrogram.handlers import MessageHandler
 from pyrogram.errors import FloodWait
-import logging
-
-import ug as helper  # आपका ug.py जिसमें डाउनलोडिंग और डीक्रिप्शन की लाजिक है
-from vars import *   # आपकी environment variables
-from db import db    # आपकी db क्लास/इंस्टेंस
+import ug as helper  # आपकी ug.py - इसमें DRM लाइव डाउनलोड/डिक्रिप्ट फंक्शन हैं
+from vars import *
+from db import db
 from clean import register_clean_handler
 from utils import progress_bar
 from apixug import SecureAPIClient
 
-# Initialize variables and client
 watermark = "UG"
-timeout_duration = 300  # 5 minutes
-
-client = SecureAPIClient()
-apis = client.get_apis()
+timeout_duration = 300  # 5 मिनट
 
 bot = Client(
     "ugx",
@@ -35,137 +25,127 @@ bot = Client(
     in_memory=True,
 )
 
-# Register your clean command handler
 register_clean_handler(bot)
+client = SecureAPIClient()
+apis = client.get_apis()
 
-# DRM downloader command implementation
-@bot.on_message(filters.command("drm") & filters.create(
-    lambda _, __, msg: db.is_user_authorized(msg.from_user.id, bot.me.username) if msg.from_user else False
-))
-async def drm_handler(bot: Client, message: Message):
-    # Authorization check for channel or user
-    bot_username = (await bot.get_me()).username
-    if message.chat.type == "channel":
-        if not db.is_channel_authorized(message.chat.id, bot_username):
-            return
-    else:
-        if not db.is_user_authorized(message.from_user.id, bot_username):
-            await message.reply_text("❌ You are not authorized to use this command.")
-            return
 
-    await message.reply_text(
-        "__Hello! Send me a text file containing lines in the format:\n"
-        "Name: URL\n\nExample:\nPhysics Lecture 1: https://example.com/video1\nMath Lecture 2: https://example.com/video2\n__"
-    )
-
-    file_msg = await bot.listen(message.chat.id)
-    if not file_msg.document:
-        await message.reply_text("❌ Please send a valid text file document.")
-        return
-
-    input_file_path = await file_msg.download()
+def auth_check_filter(_, __, message):
     try:
-        with open(input_file_path, "r") as f:
-            lines = f.readlines()
-    except Exception as e:
-        await message.reply_text(f"Failed to read file: {str(e)}")
-        return
-    os.remove(input_file_path)
-
-    entries = []
-    for line in lines:
-        if ':' in line:
-            name, url = line.split(':', 1)
-            entries.append((name.strip(), url.strip()))
-
-    if not entries:
-        await message.reply_text("❌ No valid entries found in the file.")
-        return
-
-    # Request optional DRM token/password
-    await message.reply_text("Send DRM token/password for special URLs or /skip to continue without it.")
-    try:
-        token_msg = await bot.listen(message.chat.id, timeout=60)
-        drm_token = token_msg.text if token_msg.text != "/skip" else None
-        if token_msg.text:
-            await token_msg.delete()
-    except asyncio.TimeoutError:
-        drm_token = None
-
-    # Request target channel ID or default to current chat
-    await message.reply_text("Send target channel ID to upload videos or /skip to upload here.")
-    try:
-        ch_msg = await bot.listen(message.chat.id, timeout=60)
-        if ch_msg.text != "/skip":
-            target_channel_id = int(ch_msg.text)
+        if message.chat.type == "channel":
+            return db.is_channel_authorized(message.chat.id, bot.me.username)
         else:
-            target_channel_id = message.chat.id
-        if ch_msg.text:
-            await ch_msg.delete()
+            return db.is_user_authorized(message.from_user.id, bot.me.username)
     except Exception:
-        target_channel_id = message.chat.id
+        return False
 
-    success_count = 0
-    failed = []
 
-    for idx, (name, url) in enumerate(entries, 1):
-        try:
-            await message.reply_text(f"Processing {name}...")
+auth_filter = filters.create(auth_check_filter)
 
-            # DRM URL handling
-            if "classplus" in url or "drm" in url or "encrypted.m" in url or "drmcdni" in url:
-                # Prepare DRM keys or signed URL using your helper and APIs
-                keys_string = ""
-                if "classplusapp.com/drm" in url:
-                    api_url = apis.get("API_DRM", "")
-                    if api_url:
+
+@bot.on_message(filters.command("drm") & auth_filter)
+async def drm_command_handler(bot: Client, message: Message):
+    try:
+        bot_username = (await bot.get_me()).username
+
+        # Channel में अनुमति जांचें
+        if message.chat.type == "channel" and not db.is_channel_authorized(message.chat.id, bot_username):
+            return
+        # प्राइवेट यूजर जांच
+        if message.chat.type != "channel" and not db.is_user_authorized(message.from_user.id, bot_username):
+            await message.reply_text("❌ आप इस कमांड को इस्तेमाल करने के लिए अधिकृत नहीं हैं।")
+            return
+
+        await message.reply_text(
+            "**👋 Send a text file containing Name and URL lines in this format:**\n\n"
+            "`Name: URL`\n\n"
+            "Example:\nPhysics Lecture 1: https://example.com/drm_video_link\nMath Class: https://example.com/normal_video\n\n"
+            "_Send the file within 60 seconds._"
+        )
+
+        input_file_msg = await bot.listen(message.chat.id, timeout=60)
+        if not input_file_msg.document:
+            await message.reply_text("❌ कृपया एक वैध टेक्स्ट (.txt) फ़ाइल भेजें।")
+            return
+
+        input_file_path = await input_file_msg.download()
+        with open(input_file_path, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+        os.remove(input_file_path)
+
+        entries = []
+        for line in lines:
+            if ':' in line:
+                name, url = line.split(':', 1)
+                name = name.strip()
+                url = url.strip()
+                if url:
+                    entries.append((name, url))
+
+        if not entries:
+            await message.reply_text("❌ फाइल में उपयुक्त नाम:URL लाइनें नहीं मिलीं।")
+            return
+
+        await message.reply_text("✅ फ़ाइल प्राप्त। अब वीडियो डाउनलोडिंग शुरू हो रही है...")
+
+        success_count, failed_list = 0, []
+
+        for idx, (name, url) in enumerate(entries, start=1):
+            try:
+                await message.reply_text(f"▶️ डाउनलोड कर रहा हूँ: {name}")
+                # DRM लिंक के लिए विशेष हैंडलिंग
+                if any(x in url for x in ["classplusapp.com/drm", "encrypted.m", "drmcdni", "drm/wv"]):
+                    api_drm_url = apis.get("API_DRM", "")
+                    keys_string = ""
+                    if api_drm_url:
+                        # DRM कुंजी प्राप्त करें
                         try:
-                            full_api_url = api_url + url
+                            full_api_url = api_drm_url + url
                             mpd, keys = helper.get_mps_and_keys(full_api_url)
                             if mpd and keys:
                                 url = mpd
                                 keys_string = " ".join([f"--key {k}" for k in keys])
                         except Exception as e:
-                            await message.reply_text(f"Failed to fetch DRM keys: {str(e)}")
+                            await message.reply_text(f"DRM कुंजी प्राप्त करने में विफल: {str(e)}")
 
-                # Decrypt and merge DRM video
-                show_msg = await message.reply_text(f"Downloading DRM video: {name}")
-                downloaded_file = await helper.decrypt_and_merge_video(url, keys_string, "downloads", name)
-                await show_msg.delete(True)
-                if downloaded_file:
-                    await helper.send_vid(bot, message, f"Uploaded: {name}", downloaded_file, None, name, None, target_channel_id, watermark=watermark)
-                    success_count += 1
+                    download_progress_msg = await message.reply_text(f"🔐 DRM वीडियो डाउनलोड कर रहा हूँ: {name}")
+                    file_path = await helper.decrypt_and_merge_video(url, keys_string, "downloads", name)
+                    await download_progress_msg.delete()
+
+                    if file_path:
+                        await helper.send_vid(bot, message, f"🎬 {name} अपलोड हो गया है।", file_path, None, name, None, message.chat.id, watermark=watermark)
+                        success_count += 1
+                    else:
+                        raise Exception("डिक्रिप्शन या डाउनलोड फेल")
+
                 else:
-                    raise Exception("Failed DRM decryption/download")
-            else:
-                # Normal video download with yt-dlp
-                cmd = f'yt-dlp -o "{name}.mp4" "{url}"'
-                show_msg = await message.reply_text(f"Downloading video: {name}")
-                downloaded_file = await helper.download_video(url, cmd, name)
-                await show_msg.delete(True)
-                if downloaded_file:
-                    await helper.send_vid(bot, message, f"Uploaded: {name}", downloaded_file, None, name, None, target_channel_id, watermark=watermark)
-                    success_count += 1
-                else:
-                    raise Exception("Download failed")
+                    # सामान्य वीडियो डाउनलोडिंग
+                    download_progress_msg = await message.reply_text(f"⬇️ वीडियो डाउनलोड कर रहा हूँ: {name}")
+                    cmd = f'yt-dlp -o "{name}.mp4" "{url}"'
+                    file_path = await helper.download_video(url, cmd, name)
+                    await download_progress_msg.delete()
 
-        except Exception as err:
-            failed.append((name, str(err)))
-            await message.reply_text(f"Failed {name}: {str(err)}")
+                    if file_path:
+                        await helper.send_vid(bot, message, f"🎬 {name} अपलोड हो गया है।", file_path, None, name, None, message.chat.id, watermark=watermark)
+                        success_count += 1
+                    else:
+                        raise Exception("डाउनलोड विफल")
 
-    summary = f"✅ Successfully processed {success_count} videos."
-    if failed:
-        summary += "\n⚠️ Failed downloads:\n"
-        for fn, err in failed:
-            summary += f"- {fn}: {err}\n"
+            except Exception as e:
+                failed_list.append((name, str(e)))
+                await message.reply_text(f"❌ फेल हुआ: {name}\nकारण: {str(e)}")
 
-    await message.reply_text(summary)
+        result_msg = f"✅ कुल सफल वीडियो: {success_count}\n"
+        if failed_list:
+            result_msg += "⚠️ फेल वीडियो:\n" + "\n".join([f"- {n}: {m}" for n, m in failed_list])
+
+        await message.reply_text(result_msg)
+
+    except Exception as e:
+        await message.reply_text(f"⚠️ कोई त्रुटि हुई: {str(e)}")
 
 
-# Other existing commands and handlers (like /start, /setlog, /getlog, etc.) go here
-# ...
-
-# Start the bot
 if __name__ == "__main__":
-    print("Starting UGDEV DRM Uploader Bot...")
+    print("Bot Starting...")
     bot.run()
+                
