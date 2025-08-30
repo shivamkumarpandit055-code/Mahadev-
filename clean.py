@@ -12,6 +12,7 @@ def clean_downloads():
     try:
         # Create downloads directory if it doesn't exist
         os.makedirs("downloads", exist_ok=True)
+        
         # Remove all files in downloads directory
         for file in glob.glob("downloads/*"):
             try:
@@ -30,8 +31,10 @@ def clean_media_files():
         image_formats = ["*.jpg", "*.jpeg", "*.png"]
         video_formats = ["*.mp4", "*.mkv", "*.webm"]
         temp_formats = ["*.part", "*.ytdl"]
+        
         # Combine all formats
         formats_to_clean = image_formats + video_formats + temp_formats
+        
         # Clean files in root directory
         for format_pattern in formats_to_clean:
             for file in glob.glob(format_pattern):
@@ -39,6 +42,7 @@ def clean_media_files():
                     # Skip wm.png
                     if file == "wm.png":
                         continue
+                        
                     if os.path.isfile(file):
                         os.remove(file)
                         print(f"Removed from root: {file}")
@@ -60,13 +64,16 @@ async def clean_expired_users(client: Client):
         for bot_username in db.list_bot_usernames():
             users = db.list_users(bot_username)
             all_users.extend([(user, bot_username) for user in users])
+        
         removed_count = 0
         now = datetime.now()
+        
         # Check each user
         for user, bot_username in all_users:
             expiry = user['expiry_date']
             if isinstance(expiry, str):
                 expiry = datetime.strptime(expiry, "%Y-%m-%d %H:%M:%S")
+                
             if expiry <= now:
                 # User is expired
                 try:
@@ -78,10 +85,13 @@ async def clean_expired_users(client: Client):
                     )
                 except Exception as e:
                     print(f"Failed to notify user {user['user_id']}: {e}")
+                
                 # Remove user
                 if db.remove_user(user['user_id'], bot_username):
                     removed_count += 1
+                    
         return removed_count
+        
     except Exception as e:
         print(f"Error cleaning expired users: {e}")
         return 0
@@ -94,12 +104,16 @@ async def handle_clean_command(client: Client, message):
         if message.from_user.id not in ADMINS:
             await message.reply_text("⚠️ You are not authorized to use this command.")
             return
+            
         # Send initial message
         status_msg = await message.reply_text("🧹 Cleaning files and expired users...")
+        
         # Clean all files
         clean_all()
+        
         # Clean expired users
         removed_users = await clean_expired_users(client)
+        
         # Update status message
         await status_msg.edit_text(
             "✅ Cleanup completed!\n"
@@ -108,6 +122,7 @@ async def handle_clean_command(client: Client, message):
             "- Removed .part and .ytdl files\n"
             f"- Removed {removed_users} expired users"
         )
+        
     except Exception as e:
         await message.reply_text(f"❌ Error during cleanup: {str(e)}")
 
@@ -118,4 +133,3 @@ def register_clean_handler(bot: Client):
 
 # Clean on startup
 clean_all()
-        
