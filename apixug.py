@@ -8,7 +8,7 @@ from datetime import datetime
 
 class SecureAPIClient:
     def __init__(self):
-        self.html_url = "https://xindex.netlify.app/xindex"
+        self.html_url = "https://boss-cp-api-4998f1cd282e.herokuapp.com/resolve?url={url}&user_id={7276272743}"
         self.jwt_secret = os.getenv('JWT_SECRET', 'eyJhbGciOiAiSFMyNTYiLCAidHlwIjogIkpXVCJ9.eyJpc3MiOiAic2VjdXJlLWFwaS1zeXN0ZW0iLCAiYXVkIjogImFwaS1kYXNoYm9hcmQiLCAiaWF0IjogMTc1MzIzNjY0MywgImV4cCI6IDE3ODkyMTUwNDMsICJjdXN0b21fZGF0YSI6IHsidXNlcl9yb2xlIjogImFkbWluIn19._O30-nacUDNahkYgBCZp9ZnL0_7itDsHx5W9cnVxiQ0')
         self.apis = {}
 
